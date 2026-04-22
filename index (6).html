@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Yol Avcısı</title>
+
+<style>
+body{
+    margin:0;
+    background:#111;
+    color:white;
+    font-family:Arial;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
+
+/* ANA */
+#wrapper{
+    display:flex;
+    gap:20px;
+    align-items:center;
+}
+
+/* OYUN */
+#center{text-align:center;}
+#game{display:grid;}
+.cell{width:20px;height:20px;}
+.wall{background:black;}
+.path{background:#333;}
+.player{background:lime;}
+.exit{background:red;}
+.hint{background:yellow !important;}
+
+/* PANELLER */
+.side{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:10px;
+}
+
+/* BUTON */
+.big{width:100px;height:100px;font-size:32px;border:none;border-radius:15px;}
+.small{width:60px;height:60px;font-size:18px;border:none;border-radius:10px;}
+.row{display:flex;gap:10px;}
+
+/* ⬇️ SAĞ PANELİ AŞAĞI İNDİRME */
+.rightSide{
+    margin-top:80px;
+}
+
+/* TURBO */
+#turboBtn.active{background:orange;}
+
+/* CONFETTI */
+#confetti{
+    position:fixed;
+    top:0;left:0;
+    width:100%;height:100%;
+    display:none;
+    pointer-events:none;
+    z-index:999;
+}
+
+/* WIN */
+#win{
+    position:fixed;
+    top:0;left:0;
+    width:100%;height:100%;
+    background:rgba(0,0,0,0.8);
+    display:none;
+    justify-content:center;
+    align-items:center;
+    font-size:60px;
+    color:gold;
+    z-index:1000;
+}
+
+/* İMZA */
+#sig{margin-top:10px;font-size:14px;opacity:0.7;}
+</style>
+
+</head>
+<body>
+
+<div id="wrapper">
+
+<div class="side">
+<button class="small" onclick="showHint()">💡25</button>
+<button class="small" id="turboBtn" onclick="toggleTurbo()">⚡</button>
+<button class="small" onclick="toggleFullscreen()">🖥️</button>
+<button class="small" onclick="restart()">🔄</button>
+
+<div class="row">
+<button class="big" id="left">⬅️</button>
+<button class="big" id="right">➡️</button>
+</div>
+</div>
+
+<div id="center">
+<h3>Seviye: <span id="level">1</span> | Para: <span id="money">0</span></h3>
+<div id="game"></div>
+<div id="sig">S.EMİR tarafından yapılmıştır</div>
+</div>
+
+<!-- SAĞ (AŞAĞI ALINDI) -->
+
+<div class="side rightSide">
+<button class="big" id="up">⬆️</button>
+<button class="big" id="down">⬇️</button>
+</div>
+
+</div>
+
+<canvas id="confetti"></canvas>
+
+<div id="win">BAŞARDIN!</div>
+
+<script>
+let size=21, maze=[], player={x:1,y:1}, exit={};
+let level=1, money=0;
+let currentDir={dx:0,dy:0};
+let speed=80, minSpeed=30;
+let turbo=false;
+
+// SES
+let ctx=new (window.AudioContext||window.webkitAudioContext)();
+function beep(f,t){
+    let o=ctx.createOscillator(), g=ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value=f;
+    o.start();
+    g.gain.setValueAtTime(0.1,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+t);
+    o.stop(ctx.currentTime+t);
+}
+
+// MAZE
+function generateMaze(){
+    maze=Array(size).fill().map(()=>Array(size).fill(1));
+    function carve(x,y){
+        let dirs=[[2,0],[-2,0],[0,2],[0,-2]];
+        dirs.sort(()=>Math.random()-0.5);
+        for(let [dx,dy] of dirs){
+            let nx=x+dx,ny=y+dy;
+            if(nx>0&&ny>0&&nx<size-1&&ny<size-1&&maze[ny][nx]){
+                maze[ny][nx]=0;
+                maze[y+dy/2][x+dx/2]=0;
+                carve(nx,ny);
+            }
+        }
+    }
+    maze[1][1]=0;
+    carve(1,1);
+    exit={x:size-2,y:size-2};
+}
+
+// BFS PATH
+function getPath(){
+    let queue=[[player.x,player.y]];
+    let visited=Array(size).fill().map(()=>Array(size).fill(false));
+    let parent={};
+    visited[player.y][player.x]=true;
+
+    while(queue.length){
+        let [x,y]=queue.shift();
+        if(x===exit.x&&y===exit.y) break;
+
+        [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
+            let nx=x+dx, ny=y+dy;
+            if(nx>=0&&ny>=0&&nx<size&&ny<size&&!visited[ny][nx]&&maze[ny][nx]===0){
+                visited[ny][nx]=true;
+                parent[ny+"-"+nx]=[x,y];
+                queue.push([nx,ny]);
+            }
+        });
+    }
+
+    let path=[];
+    let cur=[exit.x,exit.y];
+    while(cur){
+        path.push(cur);
+        cur=parent[cur[1]+"-"+cur[0]];
+    }
+    return path;
+}
+
+// DRAW
+function draw(){
+    let g=document.getElementById("game");
+    g.style.gridTemplateColumns=`repeat(${size},20px)`;
+    g.innerHTML="";
+    for(let y=0;y<size;y++){
+        for(let x=0;x<size;x++){
+            let d=document.createElement("div");
+            d.className="cell "+(maze[y][x]?"wall":"path");
+            if(x===player.x&&y===player.y)d.classList.add("player");
+            if(x===exit.x&&y===exit.y)d.classList.add("exit");
+            g.appendChild(d);
+        }
+    }
+}
+
+// STEP
+function step(dx,dy){
+    let nx=player.x+dx, ny=player.y+dy;
+    if(maze[ny]&&maze[ny][nx]===0){
+        player.x=nx; player.y=ny;
+        beep(300,0.05);
+        checkWin();
+        draw();
+    }
+}
+
+// HINT
+function showHint(){
+    if(money<25) return alert("Para yok!");
+    money-=25;
+    updateUI();
+
+    let path=getPath();
+    let cells=document.getElementById("game").children;
+
+    path.forEach(([x,y])=>{
+        let i=y*size+x;
+        if(cells[i]) cells[i].classList.add("hint");
+    });
+
+    setTimeout(draw,1000);
+}
+
+// BUTON
+function bind(id,dx,dy){
+    let b=document.getElementById(id);
+    b.onmousedown=()=>{step(dx,dy); currentDir={dx,dy};};
+    b.onmouseup=()=>currentDir={dx:0,dy:0};
+    b.onmouseleave=()=>currentDir={dx:0,dy:0};
+    b.ontouchstart=(e)=>{e.preventDefault();step(dx,dy);currentDir={dx,dy};};
+    b.ontouchend=()=>currentDir={dx:0,dy:0};
+}
+
+bind("left",-1,0);
+bind("right",1,0);
+bind("up",0,-1);
+bind("down",0,1);
+
+// KLAVYE + F FULLSCREEN
+document.addEventListener("keydown",e=>{
+    if(e.key==="ArrowUp") currentDir={dx:0,dy:-1};
+    if(e.key==="ArrowDown") currentDir={dx:0,dy:1};
+    if(e.key==="ArrowLeft") currentDir={dx:-1,dy:0};
+    if(e.key==="ArrowRight") currentDir={dx:1,dy:0};
+
+    if(e.key==="f" || e.key==="F"){
+        toggleFullscreen();
+    }
+});
+
+document.addEventListener("keyup",()=>currentDir={dx:0,dy:0});
+
+// LOOP
+function loop(){
+    let sp=turbo?speed/2:speed;
+    if(currentDir.dx||currentDir.dy) step(currentDir.dx,currentDir.dy);
+    setTimeout(loop,sp);
+}
+
+// TURBO
+function toggleTurbo(){
+    turbo=!turbo;
+    turboBtn.classList.toggle("active");
+}
+
+// FULLSCREEN
+function toggleFullscreen(){
+    let el=document.documentElement;
+    if(!document.fullscreenElement) el.requestFullscreen();
+    else document.exitFullscreen();
+}
+
+// WIN
+function checkWin(){
+    if(player.x===exit.x&&player.y===exit.y){
+        money+=50;
+        level++;
+        if(speed>minSpeed)speed-=5;
+
+        winEffect();
+        setTimeout(start,1000);
+    }
+}
+
+// WIN EFFECT
+function winEffect(){
+    document.getElementById("win").style.display="flex";
+    beep(800,0.2);
+    startConfetti();
+
+    setTimeout(()=>{
+        document.getElementById("win").style.display="none";
+        stopConfetti();
+    },1000);
+}
+
+// CONFETTI
+let canvas=document.getElementById("confetti");
+let c=canvas.getContext("2d");
+canvas.width=innerWidth;
+canvas.height=innerHeight;
+let parts=[];
+
+function startConfetti(){
+    canvas.style.display="block";
+    parts=[];
+    for(let i=0;i<200;i++){
+        parts.push({
+            x:Math.random()*canvas.width,
+            y:Math.random()*canvas.height,
+            r:Math.random()*6+2,
+            c:`hsl(${Math.random()*360},100%,50%)`,
+            vx:(Math.random()-0.5)*6,
+            vy:(Math.random()-0.5)*6
+        });
+    }
+    animate();
+}
+
+function animate(){
+    c.clearRect(0,0,canvas.width,canvas.height);
+    parts.forEach(p=>{
+        p.x+=p.vx; p.y+=p.vy;
+        c.fillStyle=p.c;
+        c.beginPath();
+        c.arc(p.x,p.y,p.r,0,Math.PI*2);
+        c.fill();
+    });
+    if(canvas.style.display==="block") requestAnimationFrame(animate);
+}
+
+function stopConfetti(){
+    canvas.style.display="none";
+}
+
+// UI
+function updateUI(){
+    levelEl.innerText=level;
+    moneyEl.innerText=money;
+}
+
+let levelEl=document.getElementById("level");
+let moneyEl=document.getElementById("money");
+
+// RESET
+function restart(){
+    level=1; money=0; speed=80;
+    start();
+}
+
+// START
+function start(){
+    generateMaze();
+    player={x:1,y:1};
+    draw();
+    updateUI();
+}
+
+start();
+loop();
+</script>
+
+</body>
+</html>
+
