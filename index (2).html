@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Yol Avcısı</title>
+
+<style>
+body{
+    margin:0;
+    background:#111;
+    color:white;
+    font-family:Arial;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
+#userBox{position:fixed;top:10px;right:20px;cursor:pointer;}
+
+#wrapper{display:flex;gap:20px;align-items:center;}
+#center{text-align:center;}
+#game{display:grid;}
+.cell{width:20px;height:20px;}
+.wall{background:black;}
+.path{background:#333;}
+.player{background:lime;}
+.exit{background:red;}
+.hint{background:yellow !important;}
+
+.side{display:flex;flex-direction:column;gap:10px;}
+.big{width:100px;height:100px;font-size:32px;border:none;border-radius:15px;}
+.small{width:60px;height:60px;font-size:18px;border:none;border-radius:10px;}
+.row{display:flex;gap:10px;}
+.rightSide{margin-top:80px;}
+
+#turboBtn.active{background:orange;}
+
+#win{
+    position:fixed;
+    top:0;left:0;
+    width:100%;height:100%;
+    background:rgba(0,0,0,0.8);
+    display:none;
+    justify-content:center;
+    align-items:center;
+    font-size:60px;
+    color:gold;
+}
+
+#sig{margin-top:10px;font-size:14px;opacity:0.7;}
+</style>
+</head>
+
+<body>
+
+<div id="userBox">👤 ...</div>
+
+<div id="wrapper">
+
+<div class="side">
+<button class="small" onclick="showHint()">💡120</button>
+<button class="small" id="turboBtn" onclick="toggleTurbo()">⚡</button>
+<button class="small" onclick="toggleFullscreen()">🖥️</button>
+<button class="small" onclick="restart()">🔄</button>
+
+<div class="row">
+<button class="big" id="left">⬅️</button>
+<button class="big" id="right">➡️</button>
+</div>
+</div>
+
+<div id="center">
+<h3>
+Seviye: <span id="level">1</span> |
+Para: <span id="money">0</span> |
+⏱ <span id="time">0</span>
+</h3>
+<div id="game"></div>
+<div id="sig">S.EMİR tarafından yapılmıştır</div>
+</div>
+
+<div class="side rightSide">
+<button class="big" id="up">⬆️</button>
+<button class="big" id="down">⬇️</button>
+</div>
+
+</div>
+
+<div id="win">BAŞARDIN!</div>
+
+<script>
+
+// ===== STATE =====
+let size, maze=[], player, exit;
+let level=1, money=0;
+let currentDir={dx:0,dy:0};
+let speed=80, turbo=false;
+let timeLeft=0, timer;
+
+// ===== USER =====
+let username="";
+function loadUser(){
+    username=localStorage.getItem("user") || prompt("İsim gir") || "Oyuncu";
+    localStorage.setItem("user",username);
+    updateUserUI();
+}
+function updateUserUI(){
+    document.getElementById("userBox").innerText="👤 "+username;
+}
+document.getElementById("userBox").ondblclick=()=>{
+    let n=prompt("Yeni isim:");
+    if(n){
+        username=n;
+        localStorage.setItem("user",n);
+        updateUserUI();
+    }
+};
+
+// ===== SAVE =====
+function saveGame(){
+    localStorage.setItem("save",JSON.stringify({level,money}));
+}
+function loadGame(){
+    let s=JSON.parse(localStorage.getItem("save"));
+    if(s){level=s.level;money=s.money;}
+}
+
+// ===== SOUND =====
+let ctx=new (window.AudioContext||window.webkitAudioContext)();
+function beep(f,t){
+    let o=ctx.createOscillator(),g=ctx.createGain();
+    o.connect(g);g.connect(ctx.destination);
+    o.frequency.value=f;o.start();
+    g.gain.setValueAtTime(0.1,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+t);
+    o.stop(ctx.currentTime+t);
+}
+
+// ===== MAZE =====
+function generateMaze(){
+    maze=Array(size).fill().map(()=>Array(size).fill(1));
+
+    function carve(x,y){
+        let dirs=[[2,0],[-2,0],[0,2],[0,-2]];
+        dirs.sort(()=>Math.random()-0.5);
+        for(let [dx,dy] of dirs){
+            let nx=x+dx,ny=y+dy;
+            if(nx>0&&ny>0&&nx<size-1&&ny<size-1&&maze[ny][nx]){
+                maze[ny][nx]=0;
+                maze[y+dy/2][x+dx/2]=0;
+                carve(nx,ny);
+            }
+        }
+    }
+
+    maze[1][1]=0;
+    carve(1,1);
+    exit={x:size-2,y:size-2};
+
+    addBranches(); // 🔀 zorlaştırma
+}
+
+// 🔀 YANILTICI YOLLAR
+function addBranches(){
+    let extra = level * 12;
+
+    for(let i=0;i<extra;i++){
+        let x = 1 + Math.floor(Math.random()*(size-2));
+        let y = 1 + Math.floor(Math.random()*(size-2));
+
+        if(maze[y][x]===1){
+            let count=0;
+            [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
+                if(maze[y+dy] && maze[y+dy][x+dx]===0) count++;
+            });
+            if(count>=2) maze[y][x]=0;
+        }
+    }
+}
+
+// ===== PATH =====
+function getPath(){
+    let q=[[player.x,player.y]];
+    let visited=Array(size).fill().map(()=>Array(size).fill(false));
+    let parent={};
+
+    visited[player.y][player.x]=true;
+
+    while(q.length){
+        let [x,y]=q.shift();
+        if(x===exit.x&&y===exit.y) break;
+
+        [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
+            let nx=x+dx,ny=y+dy;
+            if(nx>=0&&ny>=0&&nx<size&&ny<size&&!visited[ny][nx]&&maze[ny][nx]===0){
+                visited[ny][nx]=true;
+                parent[ny+"-"+nx]=[x,y];
+                q.push([nx,ny]);
+            }
+        });
+    }
+
+    let path=[],cur=[exit.x,exit.y];
+    while(cur){
+        path.push(cur);
+        cur=parent[cur[1]+"-"+cur[0]];
+    }
+    return path;
+}
+
+// ===== DRAW =====
+function draw(){
+    let g=document.getElementById("game");
+    g.style.gridTemplateColumns=`repeat(${size},20px)`;
+    g.innerHTML="";
+
+    for(let y=0;y<size;y++){
+        for(let x=0;x<size;x++){
+            let d=document.createElement("div");
+            d.className="cell "+(maze[y][x]?"wall":"path");
+            if(x===player.x&&y===player.y)d.classList.add("player");
+            if(x===exit.x&&y===exit.y)d.classList.add("exit");
+            g.appendChild(d);
+        }
+    }
+}
+
+// ===== MOVE =====
+function step(dx,dy){
+    let nx=player.x+dx,ny=player.y+dy;
+    if(maze[ny]&&maze[ny][nx]===0){
+        player.x=nx;player.y=ny;
+        beep(300,0.05);
+        draw();
+        checkWin();
+    }
+}
+
+// ===== HINT =====
+function showHint(){
+    if(money<120) return alert("Para yok!");
+    money-=120;
+    updateUI();
+    saveGame();
+
+    let path=getPath();
+    let cells=document.getElementById("game").children;
+
+    path.forEach(([x,y])=>{
+        let i=y*size+x;
+        if(cells[i]) cells[i].classList.add("hint");
+    });
+
+    setTimeout(draw,1000);
+}
+
+// ===== TIMER =====
+function startTimer(){
+    clearInterval(timer);
+
+    let pathLength = getPath().length;
+    let difficulty = 1 + level*0.05;
+
+    timeLeft = Math.floor(pathLength * 1.4 / difficulty);
+    if(timeLeft<10) timeLeft=10;
+
+    timer=setInterval(()=>{
+        timeLeft--;
+        document.getElementById("time").innerText=timeLeft;
+
+        if(timeLeft<=0){
+            alert("Süre doldu!");
+            restart();
+        }
+    },1000);
+}
+
+// ===== WIN =====
+function checkWin(){
+    if(player.x===exit.x&&player.y===exit.y){
+        money+=50;
+        level++;
+        saveGame();
+        winEffect();
+        setTimeout(start,800);
+    }
+}
+
+function winEffect(){
+    document.getElementById("win").style.display="flex";
+    beep(800,0.2);
+    setTimeout(()=>{
+        document.getElementById("win").style.display="none";
+    },800);
+}
+
+// ===== CONTROLS =====
+function bind(id,dx,dy){
+    let b=document.getElementById(id);
+    b.onmousedown=()=>{step(dx,dy);currentDir={dx,dy};};
+    b.onmouseup=()=>currentDir={dx:0,dy:0};
+    b.onmouseleave=()=>currentDir={dx:0,dy:0};
+}
+bind("left",-1,0);
+bind("right",1,0);
+bind("up",0,-1);
+bind("down",0,1);
+
+document.addEventListener("keydown",e=>{
+    if(e.key==="ArrowUp")currentDir={dx:0,dy:-1};
+    if(e.key==="ArrowDown")currentDir={dx:0,dy:1};
+    if(e.key==="ArrowLeft")currentDir={dx:-1,dy:0};
+    if(e.key==="ArrowRight")currentDir={dx:1,dy:0};
+    if(e.key==="f"||e.key==="F")toggleFullscreen();
+});
+document.addEventListener("keyup",()=>currentDir={dx:0,dy:0});
+
+// ===== LOOP =====
+function loop(){
+    let sp=turbo?speed/2:speed;
+    if(currentDir.dx||currentDir.dy)step(currentDir.dx,currentDir.dy);
+    setTimeout(loop,sp);
+}
+
+// ===== EXTRA =====
+function toggleTurbo(){
+    turbo=!turbo;
+    turboBtn.classList.toggle("active");
+}
+function toggleFullscreen(){
+    let el=document.documentElement;
+    if(!document.fullscreenElement) el.requestFullscreen();
+    else document.exitFullscreen();
+}
+
+// ===== UI =====
+let levelEl=document.getElementById("level");
+let moneyEl=document.getElementById("money");
+function updateUI(){
+    levelEl.innerText=level;
+    moneyEl.innerText=money;
+}
+
+// ===== START =====
+function start(){
+    size=21+(level-1)*2;
+    if(size>51) size=51;
+
+    generateMaze();
+    player={x:1,y:1};
+    loadGame();
+
+    draw();
+    updateUI();
+    startTimer();
+}
+
+// ===== RESTART =====
+function restart(){
+    start();
+}
+
+// ===== INIT =====
+loadUser();
+start();
+loop();
+
+</script>
+
+</body>
+</html>
