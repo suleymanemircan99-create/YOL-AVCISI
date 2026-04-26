@@ -277,6 +277,23 @@ bind("left",-1,0);
 bind("right",1,0);
 bind("up",0,-1);
 bind("down",0,1);
+// 📱 MOBİL BASILI TUTMA FIX
+["left","right","up","down"].forEach(id=>{
+    let b=document.getElementById(id);
+
+    b.addEventListener("touchstart", function(e){
+        e.preventDefault();
+
+        if(id==="left") currentDir={dx:-1,dy:0};
+        if(id==="right") currentDir={dx:1,dy:0};
+        if(id==="up") currentDir={dx:0,dy:-1};
+        if(id==="down") currentDir={dx:0,dy:1};
+    });
+
+    b.addEventListener("touchend", function(){
+        currentDir={dx:0,dy:0};
+    });
+});
 
 // ===== 🔥 FIXED KEYBOARD (STABLE) =====
 document.addEventListener("keydown",function(e){
