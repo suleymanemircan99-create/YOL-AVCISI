@@ -107,11 +107,11 @@ function loadUser(){
 function updateUserUI(){
     document.getElementById("userBox").innerText="👤 "+username;
 }
-document.getElementById("userBox").ondblclick=()=>{
-    let n=prompt("Yeni isim:");
-    if(n){
-        username=n;
-        localStorage.setItem("user",n);
+document.getElementById("userBox").ondblclick = function(){
+    let yeni = prompt("Yeni isim:");
+    if(yeni){
+        username = yeni;
+        localStorage.setItem("user", yeni);
         updateUserUI();
     }
 };
@@ -156,29 +156,25 @@ function generateMaze(){
     maze[1][1]=0;
     carve(1,1);
     exit={x:size-2,y:size-2};
-
-    addBranches(); // 🔀 zorlaştırma
 }
 
-// 🔀 YANILTICI YOLLAR
-function addBranches(){
-    let extra = level * 12;
+// ===== DRAW =====
+function draw(){
+    let g=document.getElementById("game");
+    g.style.gridTemplateColumns=`repeat(${size},20px)`;
+    g.innerHTML="";
 
-    for(let i=0;i<extra;i++){
-        let x = 1 + Math.floor(Math.random()*(size-2));
-        let y = 1 + Math.floor(Math.random()*(size-2));
-
-        if(maze[y][x]===1){
-            let count=0;
-            [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
-                if(maze[y+dy] && maze[y+dy][x+dx]===0) count++;
-            });
-            if(count>=2) maze[y][x]=0;
+    for(let y=0;y<size;y++){
+        for(let x=0;x<size;x++){
+            let d=document.createElement("div");
+            d.className="cell "+(maze[y][x]?"wall":"path");
+            if(x===player.x&&y===player.y)d.classList.add("player");
+            if(x===exit.x&&y===exit.y)d.classList.add("exit");
+            g.appendChild(d);
         }
     }
 }
-
-// ===== PATH =====
+// ===== PATH (İPUCU İÇİN) =====
 function getPath(){
     let q=[[player.x,player.y]];
     let visited=Array(size).fill().map(()=>Array(size).fill(false));
@@ -208,37 +204,10 @@ function getPath(){
     return path;
 }
 
-// ===== DRAW =====
-function draw(){
-    let g=document.getElementById("game");
-    g.style.gridTemplateColumns=`repeat(${size},20px)`;
-    g.innerHTML="";
-
-    for(let y=0;y<size;y++){
-        for(let x=0;x<size;x++){
-            let d=document.createElement("div");
-            d.className="cell "+(maze[y][x]?"wall":"path");
-            if(x===player.x&&y===player.y)d.classList.add("player");
-            if(x===exit.x&&y===exit.y)d.classList.add("exit");
-            g.appendChild(d);
-        }
-    }
-}
-
-// ===== MOVE =====
-function step(dx,dy){
-    let nx=player.x+dx,ny=player.y+dy;
-    if(maze[ny]&&maze[ny][nx]===0){
-        player.x=nx;player.y=ny;
-        beep(300,0.05);
-        draw();
-        checkWin();
-    }
-}
-
 // ===== HINT =====
 function showHint(){
     if(money<120) return alert("Para yok!");
+
     money-=120;
     updateUI();
     saveGame();
@@ -254,15 +223,21 @@ function showHint(){
     setTimeout(draw,1000);
 }
 
+// ===== MOVE =====
+function step(dx,dy){
+    let nx=player.x+dx,ny=player.y+dy;
+    if(maze[ny]&&maze[ny][nx]===0){
+        player.x=nx;player.y=ny;
+        beep(300,0.05);
+        draw();
+        checkWin();
+    }
+}
+
 // ===== TIMER =====
 function startTimer(){
     clearInterval(timer);
-
-    let pathLength = getPath().length;
-    let difficulty = 1 + level*0.05;
-
-    timeLeft = Math.floor(pathLength * 1.4 / difficulty);
-    if(timeLeft<10) timeLeft=10;
+    timeLeft = Math.max(20, size*1.2);
 
     timer=setInterval(()=>{
         timeLeft--;
@@ -288,10 +263,7 @@ function checkWin(){
 
 function winEffect(){
     document.getElementById("win").style.display="flex";
-    beep(800,0.2);
-    setTimeout(()=>{
-        document.getElementById("win").style.display="none";
-    },800);
+    setTimeout(()=>document.getElementById("win").style.display="none",800);
 }
 
 // ===== CONTROLS =====
@@ -306,14 +278,26 @@ bind("right",1,0);
 bind("up",0,-1);
 bind("down",0,1);
 
-document.addEventListener("keydown",e=>{
-    if(e.key==="ArrowUp")currentDir={dx:0,dy:-1};
-    if(e.key==="ArrowDown")currentDir={dx:0,dy:1};
-    if(e.key==="ArrowLeft")currentDir={dx:-1,dy:0};
-    if(e.key==="ArrowRight")currentDir={dx:1,dy:0};
-    if(e.key==="f"||e.key==="F")toggleFullscreen();
+// ===== 🔥 FIXED KEYBOARD (STABLE) =====
+document.addEventListener("keydown",function(e){
+    window.focus();
+
+    if(e.key==="ArrowUp") currentDir={dx:0,dy:-1};
+    if(e.key==="ArrowDown") currentDir={dx:0,dy:1};
+    if(e.key==="ArrowLeft") currentDir={dx:-1,dy:0};
+    if(e.key==="ArrowRight") currentDir={dx:1,dy:0};
 });
-document.addEventListener("keyup",()=>currentDir={dx:0,dy:0});
+
+document.addEventListener("keyup",function(e){
+    if(
+        e.key==="ArrowUp"||
+        e.key==="ArrowDown"||
+        e.key==="ArrowLeft"||
+        e.key==="ArrowRight"
+    ){
+        currentDir={dx:0,dy:0};
+    }
+});
 
 // ===== LOOP =====
 function loop(){
@@ -369,4 +353,5 @@ loop();
 
 </body>
 </html>
+
 
